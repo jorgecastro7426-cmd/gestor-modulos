@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="Gestor Módulos"/>
+<title>Gestor de Módulos</title>
+<style>*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f4f2ef}</style>
+</head>
+<body>
+<div id="root"></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script type="text/babel">
+const { useState, useMemo } = React;
+
+const MOVEIS = ["Cozinha","Manel","Escritório","Sapateira","Dispensa","Maria Secr","Maria Embu","TJ-Superior","TJ-Lateral","TJ-Portas"];
+const MATERIAIS = [
+  { id:"mdf_lac_br", label:"MDF Lacado Branco 19mm", cor:"#9b3a8a" },
+  { id:"mel_branca", label:"Melamina Branca 19mm",   cor:"#2a7aab" },
+  { id:"mel_linho",  label:"Melamina Linho 19mm",    cor:"#5a8a2a" },
+  { id:"aglo_carv",  label:"Aglo Carvalho 19mm",     cor:"#8b5a1a" },
+  { id:"mel_12",     label:"Melamina 12mm",           cor:"#b07a30" },
+];
+const MATERIAIS_PORTA = [
+  { id:"",           label:"— sem porta —",           cor:"#aaa" },
+  { id:"mdf_lac_br", label:"MDF Lacado Branco 19mm",  cor:"#9b3a8a" },
+  { id:"mel_branca", label:"Melamina Branca 19mm",    cor:"#2a7aab" },
+  { id:"mel_linho",  label:"Melamina Linho 19mm",     cor:"#5a8a2a" },
+  { id:"aglo_carv",  label:"Aglo Carvalho 19mm",      cor:"#8b5a1a" },
+];
+const PANEL_COLS  = ["base","topo","lateral_esq","lateral_dir","fundo"];
+const PANEL_LABELS= { base:"base", topo:"topo", lateral_esq:"lateral esq.", lateral_dir:"lateral dir.", fundo:"fundo · 12mm" };
+const FERRAGENS   = [
+  { id:"gav_m",   label:"Gaveta M",         icon:"▭" },
+  { id:"gav_pan", label:"Gaveta Panela",    icon:"▬" },
+  { id:"aventos", label:"Aventos Elevador", icon:"▲" },
+];
+const ILHARGA_COLS = [
+  { id:"lat_esq", label:"Lat. Esquerda" },
+  { id:"lat_dir", label:"Lat. Direita"  },
+  { id:"rodape",  label:"Rodapé"        },
+];
+const C = {
+  bg:"#f4f2ef", surface:"#ffffff", surfaceAlt:"#f9f8f6",
+  border:"#ddd9d2", borderMid:"#ccc7be",
+  text:"#1e1c19", textMid:"#5a5650", textLight:"#9b9690",
+  accent:"#6b4f1e", accentLt:"#c8a84b", blue:"#2a7aab", red:"#aa2222",
+};
+
+function parseSize(val){
+  if(!val||!val.trim())return null;
+  const m=val.trim().match(/^(\d+(?:[.,]\d+)?)\s*[*xX×]\s*(\d+(?:[.,]\d+)?)$/);
+  if(!m)return null;
+  const w=parseFloat(m[1].replace(",","."));
+  const h=parseFloat(m[2].replace(",","."));
+  return{w,h,key:`${w}×${h}`};
+}
+function m2(s){return(s.w*s.h)/1e6;}
+function parseNum(v){const n=parseFloat(String(v).replace(",","."));return isNaN(n)?0:n;}
+
+function emptyModulo(){
+  return{
+    id:Date.now()+Math.random(),
+    movel:"Cozinha", nome:"", material:"mdf_lac_br",
+    base:"", topo:"", lateral_esq:"", lateral_dir:"", fundo:"",
+    rasgoFundo:"",
+    div_qtd:0, div_mat:"mdf_lac_br", div_tam:"",
+    ferragens:{gav_m:0,gav_pan:0,aventos:0},
+    porta_mat:"", porta_tam:"", porta_dob:0,
+    ilharga:{lat_esq:"",lat_dir:"",rodape:""},
+  };
+}
+
+const iBase={
+  background:C.surface, border:`1px solid ${C.border}`, borderRadius:4,
+  color:C.text, padding:"6px 8px", fontSize:13,
+  fontFamily:"system-ui,sans-serif", outline:"none",
+  boxSizing:"border-box", width:"100%",
+};
+
+function CellInput({value,onChange,placeholder,valid,invalid}){
+  const handleChange=(e)=>{
+    const raw=e.target.value;
+    const hasSep=/[*xX×]/.test(raw);
+    if(!hasSep&&/^\d{3,}$/.test(raw)&&raw.length>value.replace(/[*xX×].*/,"").length){
+      onChange(raw+"×");return;
+    }
+    onChange(raw);
+  };
+  const waiting=/^\d{3,}×$/.test(value);
+  return(
+    <div style={{position:"relative"}}>
+      <input value={value} onChange={handleChange} placeholder={placeholder||"ex: 800×600"}
+        style={{...iBase,
+          border:`1px solid ${invalid?C.red:valid?C.accent:waiting?C.accentLt:C.border}`,
+          background:valid?"#fffdf6":invalid?"#fff5f5":C.surface,
+          paddingBottom:valid?"18px":"6px",
+        }}/>
+      {waiting&&!valid&&<div style={{position:"absolute",bottom:3,right:6,fontSize:9,color:C.accentLt}}>altura…</div>}
+      {valid&&<div style={{position:"absolute",bottom:3,right:6,fontSize:9,color:C.accent}}>{m2(valid).toFixed(4)} m²</div>}
+    </div>
+  );
+}
+
+function Label({children,color}){
+  return <div style={{fontSize:10,letterSpacing:2,color:color||C.textLight,textTransform:"uppercase",marginBottom:4,fontWeight:600}}>{children}</div>;
+}
+
+const matOf=(id,list)=>list.find(m=>m.id===id)||list[0];
+
+function StepBtn({onClick,label}){
+  return <button onClick={onClick} style={{background:C.surfaceAlt,border:`1px solid ${C.border}`,color:C.textMid,width:30,height:34,borderRadius:4,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>{label}</button>;
+}
+
+function ModuloCard({mod,setField,onRemove,indexLabel}){
+  const mat=matOf(mod.material,MATERIAIS);
+  const pmat=matOf(mod.porta_mat,MATERIAIS_PORTA);
+  const dm=matOf(mod.div_mat,MATERIAIS);
+  const setIlharga=(key,val)=>setField("ilharga",{...mod.ilharga,[key]:val});
+  const setFerr=(fid,val)=>setField("ferragens",{...mod.ferragens,[fid]:Math.max(0,val)});
+
+  return(
+    <div style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`4px solid ${mat.cor}`,borderRadius:8,padding:"14px",marginBottom:12,boxShadow:"0 1px 4px rgba(0,0,0,0.07)"}}>
+
+      {/* Header */}
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14,flexWrap:"wrap"}}>
+        {indexLabel&&<span style={{fontWeight:700,color:C.textLight,fontSize:13,minWidth:24}}>{indexLabel}</span>}
+        <div>
+          <Label color={C.blue}>Móvel</Label>
+          <select value={mod.movel} onChange={e=>setField("movel",e.target.value)}
+            style={{...iBase,width:"auto",fontWeight:600,cursor:"pointer",color:C.blue,border:`1px solid ${C.blue}40`,background:C.blue+"0a"}}>
+            {MOVEIS.map(mv=><option key={mv} value={mv}>{mv}</option>)}
+          </select>
+        </div>
+        <div style={{flex:1,minWidth:140}}>
+          <Label>Módulo Interno (nome)</Label>
+          <input value={mod.nome} onChange={e=>setField("nome",e.target.value)} placeholder="nome do módulo…" style={{...iBase,fontWeight:600,fontSize:14}}/>
+        </div>
+        {onRemove&&(
+          <button onClick={onRemove} style={{alignSelf:"flex-start",background:"none",border:"none",color:C.textLight,cursor:"pointer",fontSize:22,padding:"2px 4px",lineHeight:1}}
+            onTouchStart={e=>e.currentTarget.style.color=C.red} onTouchEnd={e=>e.currentTarget.style.color=C.textLight}>×</button>
+        )}
+      </div>
+
+      {/* Material corpo */}
+      <div style={{marginBottom:12}}>
+        <Label>Material (corpo)</Label>
+        <select value={mod.material} onChange={e=>setField("material",e.target.value)}
+          style={{...iBase,width:"auto",color:mat.cor,fontWeight:600,cursor:"pointer",border:`1px solid ${mat.cor}50`,background:mat.cor+"0d"}}>
+          {MATERIAIS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}
+        </select>
+      </div>
+
+      {/* Panels */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8,marginBottom:12}}>
+        {PANEL_COLS.map(col=>{
+          const s=parseSize(mod[col]);
+          const inv=mod[col].trim()&&!s;
+          const isLat=col==="lateral_esq"||col==="lateral_dir";
+          const onChange=(v)=>{
+            if(isLat){setField("lateral_esq",v);setField("lateral_dir",v);}
+            else setField(col,v);
+          };
+          return(
+            <div key={col}>
+              <Label color={isLat?C.accentLt:col==="fundo"?C.accent:undefined}>{PANEL_LABELS[col]}</Label>
+              <CellInput value={mod[col]} onChange={onChange} valid={s} invalid={inv}/>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Rasgo + Divisória */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:14,paddingTop:10,borderTop:`1px solid ${C.border}`}}>
+        <div>
+          <Label color={C.accentLt}>Rasgo Fundo (A) ml</Label>
+          <input type="number" min="0" step="0.1" value={mod.rasgoFundo} onChange={e=>setField("rasgoFundo",e.target.value)}
+            placeholder="0.0" style={{...iBase,border:`1px solid ${mod.rasgoFundo?C.accentLt:C.border}`,color:mod.rasgoFundo?C.accent:C.textLight}}/>
+        </div>
+        <div>
+          <Label>Divisória Horizontal</Label>
+          <div style={{display:"grid",gridTemplateColumns:"auto 1fr 1.2fr",gap:6,alignItems:"end"}}>
+            <div>
+              <div style={{fontSize:9,color:C.textLight,marginBottom:4}}>Nº</div>
+              <div style={{display:"flex",alignItems:"center",gap:2}}>
+                <StepBtn onClick={()=>setField("div_qtd",Math.max(0,(parseInt(mod.div_qtd)||0)-1))} label="−"/>
+                <span style={{width:28,textAlign:"center",fontSize:14,fontWeight:700,color:mod.div_qtd>0?C.accent:C.textLight}}>{mod.div_qtd||0}</span>
+                <StepBtn onClick={()=>setField("div_qtd",(parseInt(mod.div_qtd)||0)+1)} label="+"/>
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:C.textLight,marginBottom:4}}>Material</div>
+              <select value={mod.div_mat} onChange={e=>setField("div_mat",e.target.value)}
+                style={{...iBase,color:dm.cor,fontWeight:600,cursor:"pointer",border:`1px solid ${dm.cor}50`,background:dm.cor+"0d",padding:"6px 4px"}}>
+                {MATERIAIS.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:C.textLight,marginBottom:4}}>Tamanho</div>
+              <CellInput value={mod.div_tam} onChange={v=>setField("div_tam",v)} valid={parseSize(mod.div_tam)} invalid={mod.div_tam.trim()&&!parseSize(mod.div_tam)}/>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Ferragens */}
+      <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.text,letterSpacing:1,marginBottom:10,textTransform:"uppercase"}}>Ferragens</div>
+        <div style={{display:"flex",gap:18,flexWrap:"wrap"}}>
+          {FERRAGENS.map(f=>(
+            <div key={f.id} style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:14,color:C.textLight}}>{f.icon}</span>
+              <span style={{fontSize:11,color:C.textMid}}>{f.label}</span>
+              <div style={{display:"flex",alignItems:"center",gap:2}}>
+                <StepBtn onClick={()=>setFerr(f.id,(parseInt(mod.ferragens[f.id])||0)-1)} label="−"/>
+                <span style={{width:30,textAlign:"center",fontSize:14,fontWeight:700,color:mod.ferragens[f.id]>0?C.accent:C.textLight}}>{mod.ferragens[f.id]||0}</span>
+                <StepBtn onClick={()=>setFerr(f.id,(parseInt(mod.ferragens[f.id])||0)+1)} label="+"/>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Portas */}
+      <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.text,letterSpacing:1,marginBottom:10,textTransform:"uppercase"}}>Portas</div>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 1.2fr auto",gap:8,alignItems:"end"}}>
+          <div>
+            <Label color="#9b3a8a">Material</Label>
+            <select value={mod.porta_mat} onChange={e=>setField("porta_mat",e.target.value)}
+              style={{...iBase,color:pmat.cor,fontWeight:pmat.id?600:400,cursor:"pointer",border:`1px solid ${pmat.id?pmat.cor+"60":C.border}`,background:pmat.id?pmat.cor+"0d":C.surface}}>
+              {MATERIAIS_PORTA.map(m=><option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <Label color="#9b3a8a">Tamanho</Label>
+            <CellInput value={mod.porta_tam} onChange={v=>setField("porta_tam",v)} valid={parseSize(mod.porta_tam)} invalid={mod.porta_tam.trim()&&!parseSize(mod.porta_tam)} placeholder="ex: 596×716"/>
+          </div>
+          <div>
+            <Label color="#9b3a8a">Dobrad.</Label>
+            <div style={{display:"flex",alignItems:"center",gap:2}}>
+              <StepBtn onClick={()=>setField("porta_dob",Math.max(0,(parseInt(mod.porta_dob)||0)-1))} label="−"/>
+              <span style={{width:28,textAlign:"center",fontSize:14,fontWeight:700,color:mod.porta_dob>0?C.accent:C.textLight}}>{mod.porta_dob||0}</span>
+              <StepBtn onClick={()=>setField("porta_dob",(parseInt(mod.porta_dob)||0)+1)} label="+"/>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Ilharga */}
+      <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:C.text,letterSpacing:1,marginBottom:12,textTransform:"uppercase"}}>Ilharga</div>
+        <div style={{display:"flex",gap:12,alignItems:"center",justifyContent:"center",flexWrap:"wrap"}}>
+          <div style={{flex:1,minWidth:120,maxWidth:190}}>
+            <Label>Esquerda</Label>
+            <CellInput value={mod.ilharga.lat_esq} onChange={v=>setIlharga("lat_esq",v)} valid={parseSize(mod.ilharga.lat_esq)} invalid={mod.ilharga.lat_esq.trim()&&!parseSize(mod.ilharga.lat_esq)}/>
+          </div>
+          <svg width="80" height="90" viewBox="0 0 80 90" fill="none" style={{flexShrink:0}}>
+            <path d="M8 28 L48 28 L48 82 L8 82 Z" fill="#ffffff" stroke="#9b9690" strokeWidth="2" strokeLinejoin="round"/>
+            <path d="M48 28 L68 12 L68 66 L48 82 Z" fill="#f9f8f6" stroke="#9b9690" strokeWidth="2" strokeLinejoin="round"/>
+            <path d="M8 28 L28 12 L68 12 L48 28 Z" fill="#c8a84b22" stroke="#9b9690" strokeWidth="2" strokeLinejoin="round"/>
+            <line x1="8" y1="56" x2="48" y2="56" stroke="#ccc7be" strokeWidth="1.5" strokeDasharray="4 3"/>
+            <line x1="48" y1="56" x2="68" y2="42" stroke="#ccc7be" strokeWidth="1.5" strokeDasharray="4 3"/>
+            <circle cx="44" cy="55" r="3" fill="#ddd9d2"/>
+          </svg>
+          <div style={{flex:1,minWidth:120,maxWidth:190}}>
+            <Label>Direita</Label>
+            <CellInput value={mod.ilharga.lat_dir} onChange={v=>setIlharga("lat_dir",v)} valid={parseSize(mod.ilharga.lat_dir)} invalid={mod.ilharga.lat_dir.trim()&&!parseSize(mod.ilharga.lat_dir)}/>
+          </div>
+        </div>
+        <div style={{display:"flex",justifyContent:"center",marginTop:10}}>
+          <div style={{width:200}}>
+            <Label>Fundo</Label>
+            <CellInput value={mod.ilharga.rodape} onChange={v=>setIlharga("rodape",v)} valid={parseSize(mod.ilharga.rodape)} invalid={mod.ilharga.rodape.trim()&&!parseSize(mod.ilharga.rodape)}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [mods,setMods]=useState([]);
+  const [draft,setDraft]=useState(emptyModulo());
+  const [tab,setTab]=useState("entrada");
+  const [subTab,setSubTab]=useState("material");
+
+  const setDraftField=(field,val)=>setDraft(d=>({...d,[field]:val}));
+  const saveDraft=()=>{
+    const hasAny=PANEL_COLS.some(c=>parseSize(draft[c]))||parseSize(draft.porta_tam)||ILHARGA_COLS.some(c=>parseSize(draft.ilharga[c.id]))||parseNum(draft.rasgoFundo)>0||(parseInt(draft.div_qtd)>0&&parseSize(draft.div_tam))||FERRAGENS.some(f=>draft.ferragens[f.id]>0)||draft.nome.trim();
+    if(!hasAny)return;
+    setMods(m=>[...m,draft]);
+    setDraft(emptyModulo());
+    window.scrollTo(0,0);
+  };
+  const setModField=(id,field,val)=>setMods(m=>m.map(x=>x.id===id?{...x,[field]:val}:x));
+  const removeMod=(id)=>setMods(m=>m.filter(x=>x.id!==id));
+
+  const data=useMemo(()=>{
+    const byMat={};
+    MATERIAIS.forEach(m=>byMat[m.id]={placas:{},rasgoMl:0,ferragens:{gav_m:0,gav_pan:0,aventos:0},moveis:new Set()});
+    const byPorta={};
+    MATERIAIS_PORTA.filter(m=>m.id).forEach(m=>byPorta[m.id]={placas:{},dobradicas:0,moveis:new Set()});
+    const byMovel={};
+    MOVEIS.forEach(mv=>byMovel[mv]={corpoM2:0,portaM2:0,ilhargaM2:0,placas:0,dobradicas:0,rasgoMl:0,ferragens:{gav_m:0,gav_pan:0,aventos:0}});
+    let totM2=0,totPlacas=0,totDob=0,totRasgo=0,totIlhargaM2=0;
+    const totFerr={gav_m:0,gav_pan:0,aventos:0};
+    const addPlaca=(bucket,s)=>{
+      if(!bucket.placas[s.key])bucket.placas[s.key]={...s,count:0,totalM2:0};
+      bucket.placas[s.key].count+=1;
+      bucket.placas[s.key].totalM2+=m2(s);
+    };
+    mods.forEach(mod=>{
+      const mb=byMat[mod.material];
+      const mvb=byMovel[mod.movel];
+      PANEL_COLS.forEach(col=>{
+        const s=parseSize(mod[col]);
+        if(s){
+          const matId=col==="fundo"?"mel_12":mod.material;
+          const tb=byMat[matId];
+          if(tb){addPlaca(tb,s);tb.moveis.add(mod.movel);}
+          if(mvb){mvb.corpoM2+=m2(s);mvb.placas+=1;}
+          totM2+=m2(s);totPlacas+=1;
+        }
+      });
+      const rasgo=parseNum(mod.rasgoFundo);
+      if(rasgo&&mb){mb.rasgoMl+=rasgo;if(mvb)mvb.rasgoMl+=rasgo;totRasgo+=rasgo;}
+      const divQtd=parseInt(mod.div_qtd)||0;
+      const divS=parseSize(mod.div_tam);
+      if(divQtd>0&&divS){
+        const dmb=byMat[mod.div_mat];
+        for(let k=0;k<divQtd;k++){
+          if(dmb){addPlaca(dmb,divS);dmb.moveis.add(mod.movel);}
+          if(mvb){mvb.corpoM2+=m2(divS);mvb.placas+=1;}
+          totM2+=m2(divS);totPlacas+=1;
+        }
+      }
+      FERRAGENS.forEach(f=>{
+        const q=parseInt(mod.ferragens[f.id])||0;
+        if(q){if(mb)mb.ferragens[f.id]+=q;if(mvb)mvb.ferragens[f.id]+=q;totFerr[f.id]+=q;}
+      });
+      if(mod.porta_mat&&byPorta[mod.porta_mat]){
+        const pb=byPorta[mod.porta_mat];
+        const ps=parseSize(mod.porta_tam);
+        if(ps){addPlaca(pb,ps);pb.moveis.add(mod.movel);if(mvb){mvb.portaM2+=m2(ps);mvb.placas+=1;}totM2+=m2(ps);totPlacas+=1;}
+        const dob=parseInt(mod.porta_dob)||0;
+        pb.dobradicas+=dob;if(mvb)mvb.dobradicas+=dob;totDob+=dob;
+      }
+      ILHARGA_COLS.forEach(c=>{
+        const s=parseSize(mod.ilharga[c.id]);
+        if(s){if(mvb){mvb.ilhargaM2+=m2(s);mvb.placas+=1;}totM2+=m2(s);totPlacas+=1;totIlhargaM2+=m2(s);if(mb){addPlaca(mb,s);mb.moveis.add(mod.movel);}}
+      });
+    });
+    return{byMat,byPorta,byMovel,totals:{totM2,totPlacas,totDob,totRasgo,totIlhargaM2,totFerr}};
+  },[mods]);
+
+  const thSt=(right)=>({padding:"7px 10px",textAlign:right?"right":"left",fontSize:10,letterSpacing:2,textTransform:"uppercase",color:C.textLight,borderBottom:`1px solid ${C.border}`,fontWeight:600,whiteSpace:"nowrap",background:C.surfaceAlt});
+
+  function PlacasTable({placas,cor}){
+    const list=Object.values(placas).sort((a,b)=>b.count-a.count);
+    if(list.length===0)return null;
+    const tp=list.reduce((s,x)=>s+x.count,0);
+    const tm=list.reduce((s,x)=>s+x.totalM2,0);
+    return(
+      <table style={{width:"100%",borderCollapse:"collapse"}}>
+        <thead><tr>
+          <th style={thSt(false)}>Dimensão</th>
+          <th style={thSt(true)}>Qtd</th>
+          <th style={thSt(true)}>m²/un</th>
+          <th style={thSt(true)}>Total m²</th>
+        </tr></thead>
+        <tbody>
+          {list.map((s,i)=>(
+            <tr key={s.key} style={{borderTop:`1px solid ${C.border}`,background:i%2?C.surfaceAlt:C.surface}}>
+              <td style={{padding:"9px 10px",fontSize:14,color:C.text,fontWeight:600}}>{s.key} mm</td>
+              <td style={{padding:"9px 10px",textAlign:"right"}}>
+                <span style={{background:cor+"18",color:cor,borderRadius:10,padding:"2px 10px",fontSize:13,fontWeight:700}}>{s.count}</span>
+              </td>
+              <td style={{padding:"9px 10px",textAlign:"right",fontSize:11,color:C.textLight}}>{m2(s).toFixed(4)}</td>
+              <td style={{padding:"9px 10px",textAlign:"right",fontSize:13,color:C.accent,fontWeight:600}}>{s.totalM2.toFixed(4)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot><tr style={{borderTop:`2px solid ${cor}30`,background:cor+"08"}}>
+          <td style={{padding:"9px 10px",fontSize:10,color:C.textLight,letterSpacing:1,textTransform:"uppercase"}}>Subtotal</td>
+          <td style={{padding:"9px 10px",textAlign:"right",color:cor,fontWeight:700}}>{tp}</td>
+          <td></td>
+          <td style={{padding:"9px 10px",textAlign:"right",color:C.text,fontWeight:700,fontSize:15}}>{tm.toFixed(4)} <span style={{fontSize:10,color:C.textLight}}>m²</span></td>
+        </tr></tfoot>
+      </table>
+    );
+  }
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"system-ui,-apple-system,sans-serif",color:C.text,paddingBottom:40}}>
+
+      {/* Header */}
+      <div style={{padding:"16px 16px 0",borderBottom:`1px solid ${C.border}`,background:C.surface,position:"sticky",top:0,zIndex:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+          <div>
+            <div style={{fontSize:9,letterSpacing:5,color:C.accentLt,textTransform:"uppercase",marginBottom:2}}>Carpintaria</div>
+            <h1 style={{margin:"0 0 12px",fontSize:18,fontWeight:700,color:C.text}}>Gestor de Módulos</h1>
+          </div>
+          {mods.length>0&&tab==="entrada"&&(
+            <button onClick={()=>{setTab("resumo");setSubTab("modulos");}}
+              style={{marginBottom:12,background:"none",border:`1px solid ${C.border}`,color:C.textMid,padding:"5px 12px",borderRadius:16,cursor:"pointer",fontSize:11,fontWeight:600}}>
+              {mods.length} guardado{mods.length>1?"s":""} →
+            </button>
+          )}
+        </div>
+        <div style={{display:"flex",gap:2}}>
+          {[["entrada","Entrada"],["resumo","Resumo"]].map(([t,label])=>(
+            <button key={t} onClick={()=>setTab(t)} style={{
+              background:tab===t?C.accent:"none",
+              border:`1px solid ${tab===t?C.accent:C.border}`,borderBottom:"none",
+              color:tab===t?"#fff":C.textMid,padding:"8px 22px",
+              borderRadius:"5px 5px 0 0",cursor:"pointer",fontSize:12,
+              fontFamily:"inherit",letterSpacing:1,fontWeight:tab===t?700:400,
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ENTRADA */}
+      {tab==="entrada"&&(
+        <div style={{padding:"16px"}}>
+          <div style={{fontSize:11,color:C.textLight,marginBottom:14}}>
+            Medidas em mm · 3 dígitos → <span style={{color:C.accent,fontWeight:700}}>×</span> automático
+          </div>
+          <ModuloCard mod={draft} setField={setDraftField} indexLabel={String(mods.length+1).padStart(2,"0")}/>
+          <button onClick={saveDraft}
+            style={{background:C.accent,border:"none",color:"#fff",padding:"14px 24px",borderRadius:8,cursor:"pointer",fontSize:14,fontFamily:"inherit",fontWeight:700,marginTop:4,width:"100%",letterSpacing:0.5}}>
+            ✓ Guardar e Novo Módulo
+          </button>
+        </div>
+      )}
+
+      {/* RESUMO */}
+      {tab==="resumo"&&(
+        <div style={{padding:"16px"}}>
+          <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
+            {[["modulos","Módulos"],["material","Por Material"],["movel","Por Móvel"],["totais","Totais"]].map(([s,label])=>(
+              <button key={s} onClick={()=>setSubTab(s)} style={{
+                background:subTab===s?C.text:C.surface,
+                border:`1px solid ${subTab===s?C.text:C.border}`,
+                color:subTab===s?"#fff":C.textMid,
+                padding:"7px 14px",borderRadius:20,cursor:"pointer",
+                fontSize:11,fontFamily:"inherit",letterSpacing:1,fontWeight:600,textTransform:"uppercase",
+              }}>{label}</button>
+            ))}
+          </div>
+
+          {/* Módulos */}
+          {subTab==="modulos"&&(
+            mods.length===0
+              ?<div style={{textAlign:"center",color:C.textLight,fontSize:13,padding:"48px 0"}}>Ainda sem módulos — vai à Entrada</div>
+              :mods.map((mod,i)=>(
+                <ModuloCard key={mod.id} mod={mod} setField={(f,v)=>setModField(mod.id,f,v)} onRemove={()=>removeMod(mod.id)} indexLabel={String(i+1).padStart(2,"0")}/>
+              ))
+          )}
+
+          {/* Por Material */}
+          {subTab==="material"&&(
+            <>
+              <div style={{fontSize:9,letterSpacing:3,color:C.textLight,textTransform:"uppercase",marginBottom:10,fontWeight:600}}>Corpo + Ilhargas + Divisórias</div>
+              {MATERIAIS.map(mat=>{
+                const e=data.byMat[mat.id];
+                const hasPlacas=Object.keys(e.placas).length>0;
+                const hasFerr=FERRAGENS.some(f=>e.ferragens[f.id]>0);
+                if(!hasPlacas&&e.rasgoMl===0&&!hasFerr)return null;
+                return(
+                  <div key={mat.id} style={{marginBottom:18,background:C.surface,border:`1px solid ${C.border}`,borderTop:`3px solid ${mat.cor}`,borderRadius:8,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
+                    <div style={{background:mat.cor+"0c",padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                      <span style={{background:mat.cor+"18",color:mat.cor,border:`1px solid ${mat.cor}40`,borderRadius:10,padding:"2px 10px",fontSize:10,fontWeight:700}}>{mat.label}</span>
+                      {e.moveis.size>0&&<span style={{fontSize:11,color:C.textLight}}>{[...e.moveis].join(" · ")}</span>}
+                    </div>
+                    <PlacasTable placas={e.placas} cor={mat.cor}/>
+                    {e.rasgoMl>0&&(
+                      <div style={{padding:"10px 14px",borderTop:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:10,letterSpacing:2,color:C.accentLt,textTransform:"uppercase",fontWeight:600}}>Rasgo Fundo (A)</span>
+                        <span style={{fontSize:17,fontWeight:700,color:C.accent}}>{e.rasgoMl.toFixed(1)}</span>
+                        <span style={{fontSize:11,color:C.textLight}}>ml</span>
+                      </div>
+                    )}
+                    {hasFerr&&(
+                      <div style={{padding:"10px 14px",borderTop:`1px solid ${C.border}`,display:"flex",gap:20,flexWrap:"wrap"}}>
+                        {FERRAGENS.filter(f=>e.ferragens[f.id]>0).map(f=>(
+                          <div key={f.id} style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:15,color:C.accentLt}}>{f.icon}</span>
+                            <span style={{fontSize:10,color:C.textLight,letterSpacing:1,textTransform:"uppercase",fontWeight:600}}>{f.label}</span>
+                            <span style={{fontSize:17,fontWeight:700,color:C.accent}}>{e.ferragens[f.id]}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <div style={{fontSize:9,letterSpacing:3,color:C.textLight,textTransform:"uppercase",margin:"20px 0 10px",fontWeight:600}}>Portas</div>
+              {MATERIAIS_PORTA.filter(m=>m.id).map(mat=>{
+                const e=data.byPorta[mat.id];
+                if(Object.keys(e.placas).length===0&&e.dobradicas===0)return null;
+                return(
+                  <div key={mat.id} style={{marginBottom:14,background:C.surface,border:`1px solid ${C.border}`,borderTop:`3px solid ${mat.cor}`,borderRadius:8,overflow:"hidden",boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
+                    <div style={{background:mat.cor+"0c",padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:10}}>
+                      <span style={{background:mat.cor+"18",color:mat.cor,border:`1px solid ${mat.cor}40`,borderRadius:10,padding:"2px 10px",fontSize:10,fontWeight:700}}>PORTA · {mat.label}</span>
+                      {e.moveis.size>0&&<span style={{fontSize:11,color:C.textLight}}>{[...e.moveis].join(" · ")}</span>}
+                    </div>
+                    <PlacasTable placas={e.placas} cor={mat.cor}/>
+                    {e.dobradicas>0&&(
+                      <div style={{padding:"10px 14px",borderTop:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:15,color:C.accentLt}}>◉</span>
+                        <span style={{fontSize:10,color:C.textLight,letterSpacing:1,textTransform:"uppercase",fontWeight:600}}>Dobradiças</span>
+                        <span style={{fontSize:17,fontWeight:700,color:C.accent}}>{e.dobradicas}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* Por Móvel */}
+          {subTab==="movel"&&(
+            MOVEIS.map(mv=>{
+              const e=data.byMovel[mv];
+              const total=e.corpoM2+e.portaM2+e.ilhargaM2;
+              const hasFerr=FERRAGENS.some(f=>e.ferragens[f.id]>0);
+              if(e.placas===0&&e.dobradicas===0&&e.rasgoMl===0&&!hasFerr)return null;
+              return(
+                <div key={mv} style={{marginBottom:14,background:C.surface,border:`1px solid ${C.border}`,borderLeft:`4px solid ${C.blue}`,borderRadius:8,padding:"14px",boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
+                  <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:12}}>{mv}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(100px,1fr))",gap:8}}>
+                    {[
+                      ["Corpo m²",e.corpoM2.toFixed(3),C.accent],
+                      ["Portas m²",e.portaM2.toFixed(3),"#9b3a8a"],
+                      ["Ilhargas m²",e.ilhargaM2.toFixed(3),C.blue],
+                      ["Total m²",total.toFixed(3),C.text],
+                      ["Placas",e.placas,C.textMid],
+                      ["Dobradiças",e.dobradicas,C.accentLt],
+                      ["Rasgo ml",e.rasgoMl.toFixed(1),C.accentLt],
+                      ["Gav. M",e.ferragens.gav_m,C.accentLt],
+                      ["Gav. Panela",e.ferragens.gav_pan,C.accentLt],
+                      ["Aventos",e.ferragens.aventos,C.accentLt],
+                    ].map(([label,val,col])=>(
+                      <div key={label} style={{background:C.surfaceAlt,borderRadius:6,padding:"9px 10px"}}>
+                        <div style={{fontSize:9,letterSpacing:1,color:C.textLight,textTransform:"uppercase",fontWeight:600}}>{label}</div>
+                        <div style={{fontSize:17,fontWeight:700,color:col}}>{val}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
+
+          {/* Totais */}
+          {subTab==="totais"&&(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:12}}>
+              {[
+                ["Total m²",data.totals.totM2.toFixed(3),"m²",C.accent],
+                ["Total Placas",data.totals.totPlacas,"peças",C.text],
+                ["Dobradiças",data.totals.totDob,"un","#9b3a8a"],
+                ["Rasgo Fundo",data.totals.totRasgo.toFixed(1),"ml",C.accentLt],
+                ["Ilhargas",data.totals.totIlhargaM2.toFixed(3),"m²",C.blue],
+                ["Gaveta M",data.totals.totFerr.gav_m,"un",C.accentLt],
+                ["Gaveta Panela",data.totals.totFerr.gav_pan,"un",C.accentLt],
+                ["Aventos",data.totals.totFerr.aventos,"un",C.accentLt],
+              ].map(([label,val,unit,col])=>(
+                <div key={label} style={{background:C.surface,border:`1px solid ${C.border}`,borderTop:`3px solid ${col}`,borderRadius:8,padding:"18px 14px",boxShadow:"0 1px 3px rgba(0,0,0,0.05)"}}>
+                  <div style={{fontSize:9,letterSpacing:2,color:C.textLight,textTransform:"uppercase",fontWeight:600,marginBottom:8}}>{label}</div>
+                  <div style={{fontSize:30,fontWeight:700,color:col,lineHeight:1}}>{val}</div>
+                  <div style={{fontSize:11,color:C.textLight,marginTop:4}}>{unit}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {subTab!=="modulos"&&mods.length===0&&(
+            <div style={{textAlign:"center",color:C.textLight,fontSize:13,padding:"48px 0"}}>Ainda sem dados — vai à Entrada</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
